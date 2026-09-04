@@ -158,34 +158,84 @@ def metrics(sig, rate):
 # --------------------------------------------------------------------- render
 
 def envelope(sig, cols):
-    """Min/max per pixel column - the only honest way to draw 160k samples in
-    1000 pixels. Averaging would hide exactly the transients we care about."""
+    """Min, max and rms per pixel column. Min/max is the only honest way to draw
+    160k samples in 1000 pixels - averaging would hide exactly the transients we
+    care about - but the rms band drawn inside it is what makes the shape of the
+    signal readable instead of a solid slab of colour."""
     n = len(sig)
     out = []
     for c in range(cols):
         a = n * c // cols
         b = max(a + 1, n * (c + 1) // cols)
         chunk = sig[a:b]
-        out.append((min(chunk), max(chunk)))
+        rms = math.sqrt(sum(map(mul, chunk, chunk)) / len(chunk))
+        out.append((min(chunk), max(chunk), rms))
     return out
 
 
-def svg(sig, colour, w=1000, h=100):
+def lighten(colour, f):
+    r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    return "#%02x%02x%02x" % tuple(int(v + (255 - v) * f) for v in (r, g, b))
+
+
+def tick_step(secs):
+    """A round number of seconds that puts 10 or fewer gridlines on the plot."""
+    for step in (0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60):
+        if secs / step <= 10:
+            return step
+    return 120
+
+
+def svg(sig, colour, gid, secs, step, w=1000, h=100):
     """viewBox coordinates only - CSS decides the drawn height, so the same
-    markup fills whatever the viewport has left over."""
+    markup fills whatever the viewport has left over. Nothing inside may be
+    text: preserveAspectRatio='none' stretches glyphs along with everything
+    else, which is why the time labels live in HTML underneath."""
     mid = h / 2
-    scale = (h / 2 - 2) / FULL
-    d = []
-    for x, (lo, hi) in enumerate(envelope(sig, w)):
+    scale = (h / 2 - 3) / FULL
+    env = envelope(sig, w)
+
+    peaks = []
+    for x, (lo, hi, _) in enumerate(env):
         y1 = mid - hi * scale
         y2 = mid - lo * scale
-        if y2 - y1 < 0.7:
-            y2 = y1 + 0.7
-        d.append(f"M{x} {y1:.1f}V{y2:.1f}")
-    return (f"<svg viewBox='0 0 {w} {h}' preserveAspectRatio='none' class='wave'>"
-            f"<line x1='0' y1='{mid}' x2='{w}' y2='{mid}' class='axis'/>"
-            f"<path d='{''.join(d)}' stroke='{colour}' fill='none' stroke-width='1'/>"
-            f"</svg>")
+        if y2 - y1 < 0.6:
+            y2 = y1 + 0.6
+        peaks.append(f"M{x} {y1:.1f}V{y2:.1f}")
+
+    top, bot = [], []
+    for x, (_, _, r) in enumerate(env):
+        top.append(f"{x} {mid - r * scale:.1f}")
+        bot.append(f"{x} {mid + r * scale:.1f}")
+    band = "M" + "L".join(top) + "L" + "L".join(reversed(bot)) + "Z"
+
+    grid = [f"<line x1='0' y1='{f * h:.0f}' x2='{w}' y2='{f * h:.0f}'/>"
+            for f in (0.25, 0.75)]
+    t = step
+    while t < secs - 1e-9:
+        x = w * t / secs
+        grid.append(f"<line x1='{x:.1f}' y1='0' x2='{x:.1f}' y2='{h}'/>")
+        t += step
+
+    return (
+        f"<svg viewBox='0 0 {w} {h}' preserveAspectRatio='none' class='wave'>"
+        f"<defs><linearGradient id='{gid}' x1='0' y1='0' x2='0' y2='1'>"
+        f"<stop offset='0' stop-color='{lighten(colour, .38)}'/>"
+        f"<stop offset='1' stop-color='{colour}'/></linearGradient></defs>"
+        f"<g class='grid'>{''.join(grid)}</g>"
+        f"<path d='{''.join(peaks)}' stroke='{colour}' stroke-opacity='.34' "
+        f"fill='none' stroke-width='1'/>"
+        f"<path d='{band}' fill='url(#{gid})' fill-opacity='.92'/>"
+        f"<line x1='0' y1='{mid}' x2='{w}' y2='{mid}' class='axis'/></svg>")
+
+
+def ruler(secs, step):
+    out, t = [], 0.0
+    while t <= secs + 1e-9:
+        label = f"{t:.1f}" if step < 1 else f"{t:.0f}"
+        out.append(f"<span style='left:{100 * t / secs:.3f}%'>{label}</span>")
+        t += step
+    return "".join(out)
 
 
 def wav_uri(sig, rate):
@@ -201,10 +251,12 @@ def wav_uri(sig, rate):
     return "data:audio/wav;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-ROW = """<div class='row'>
- <div class='lbl'><b>{title}</b><em>{sub}</em>
-  <button class='mini' onclick="p('{aid}')">play</button></div>
+ROW = """<div class='row' style='--c:{colour}'>
+ <div class='lbl'><div class='meta'><b>{title}</b><em>{sub}</em></div>
+  <button class='mini' onclick="p('{aid}')" title='play'>&#9654;</button></div>
  {svg}<audio id='{aid}' src='{uri}'></audio></div>"""
+
+CHIP = "<span class='chip'><i>{k}</i><b>{v}</b></span>"
 
 # label, metrics key, value format, delta format, and whether a rise in that
 # delta is unambiguously an improvement. Only SNR qualifies: a lower peak or a
@@ -232,7 +284,7 @@ def table(pri, ref, out):
             f"<tr><td>{label}</td>"
             f"<td class='n'>{fmt.format(pri[key])}</td>"
             f"<td class='n dim'>{fmt.format(ref[key])}</td>"
-            f"<td class='n'>{fmt.format(out[key])}</td>"
+            f"<td class='n hi'>{fmt.format(out[key])}</td>"
             f"<td class='n d{good}'>{dfmt.format(delta)}</td></tr>")
     return "".join(body)
 
@@ -242,43 +294,75 @@ PAGE = """<!doctype html><html><head><meta charset='utf-8'>
 <title>MicRelay - {short}</title><style>
 *{{box-sizing:border-box}}
 html,body{{height:100%}}
-body{{background:#14161a;color:#e6e6e6;font:13px/1.45 system-ui,sans-serif;
- margin:0;padding:12px 16px;display:flex;flex-direction:column;gap:9px;overflow:auto}}
-header{{display:flex;justify-content:space-between;align-items:center;gap:16px;flex:none}}
-h1{{font-size:15px;margin:0;font-weight:600}}
-.facts{{color:#8b93a0;font-size:11.5px}}
-.play{{background:#3d7dff;color:#fff;border:0;border-radius:7px;padding:9px 16px;
- font-size:13px;cursor:pointer;white-space:nowrap;flex:none}}
-.play:hover{{background:#2f6ae8}}
+body{{background:#0f1115;
+ background-image:radial-gradient(900px 460px at 18% -12%,#1b2331 0%,rgba(15,17,21,0) 70%);
+ color:#e8ecf2;font:13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+ -webkit-font-smoothing:antialiased;
+ margin:0;padding:14px 18px;display:flex;flex-direction:column;gap:10px;overflow:auto}}
+header{{display:flex;justify-content:space-between;align-items:center;gap:18px;flex:none}}
+.title{{min-width:0}}
+h1{{font-size:15px;margin:0 0 1px;font-weight:600;letter-spacing:-.01em;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.facts{{color:#7d8797;font-size:11px}}
+.chips{{display:flex;gap:8px;flex:none;margin-left:auto}}
+.chip{{display:flex;flex-direction:column;gap:1px;background:#161a21;
+ border:1px solid #232935;border-radius:8px;padding:6px 12px;line-height:1.25}}
+.chip i{{color:#7d8797;font-style:normal;font-size:9.5px;text-transform:uppercase;
+ letter-spacing:.05em}}
+.chip b{{font-size:12.5px;font-variant-numeric:tabular-nums}}
+.play{{background:linear-gradient(180deg,#4b87ff,#3169ea);color:#fff;border:0;
+ border-radius:8px;padding:10px 17px;font-size:13px;font-weight:500;cursor:pointer;
+ white-space:nowrap;flex:none;box-shadow:0 1px 0 rgba(255,255,255,.16) inset,
+ 0 4px 12px rgba(49,105,234,.28)}}
+.play:hover{{filter:brightness(1.08)}}
+.play:active{{transform:translateY(1px)}}
 .waves{{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;min-height:186px}}
-.row{{flex:1 1 0;min-height:56px;display:flex;align-items:stretch;gap:10px;
- background:#1c1f26;border:1px solid #2a2f39;border-radius:8px;padding:7px 9px}}
-.lbl{{width:132px;flex:none;display:flex;flex-direction:column;justify-content:center;gap:1px}}
-.lbl b{{font-size:12.5px}}
-em{{color:#8b93a0;font-style:normal;font-size:10.5px;line-height:1.3}}
-.mini{{background:#2a3140;color:#c9d1de;border:0;border-radius:5px;padding:3px 9px;
- font-size:10.5px;cursor:pointer;margin-top:4px;align-self:flex-start}}
-.mini:hover{{background:#39424f}}
-.wave{{flex:1 1 auto;min-width:0;height:100%;background:#111318;border-radius:5px}}
-.axis{{stroke:#2a2f39;stroke-width:1}}
+.row{{flex:1 1 0;min-height:56px;display:flex;align-items:stretch;gap:11px;
+ background:linear-gradient(180deg,#171b23,#13161c);border:1px solid #232935;
+ border-left:3px solid var(--c);border-radius:9px;padding:8px 10px 8px 9px}}
+.lbl{{width:140px;flex:none;display:flex;align-items:center;gap:8px}}
+.meta{{min-width:0;flex:1}}
+.lbl b{{display:block;font-size:12.5px;color:var(--c)}}
+em{{color:#7d8797;font-style:normal;font-size:10.5px;line-height:1.3;display:block}}
+.mini{{background:#232935;color:#c4ccd8;border:0;border-radius:50%;width:24px;height:24px;
+ font-size:9px;cursor:pointer;flex:none;padding:0;line-height:24px}}
+.mini:hover{{background:var(--c);color:#0f1115}}
+.wave{{flex:1 1 auto;min-width:0;height:100%;background:#0c0e12;border-radius:6px}}
+.grid line{{stroke:#20252e;stroke-width:1}}
+.axis{{stroke:#2b3240;stroke-width:1}}
+/* Padding mirrors .row exactly - 3px accent border plus 9px padding on the
+   left, 1px border plus 10px on the right - so the tick labels land on the
+   second gridlines drawn inside the plots rather than near them. */
+.rule{{flex:none;display:flex;align-items:center;gap:11px;height:12px;
+ padding:0 11px 0 12px;color:#666f7d;font-size:9.5px}}
+.rule .cap{{width:140px;flex:none;text-transform:uppercase;letter-spacing:.05em}}
+.rule .ticks{{position:relative;flex:1;height:100%}}
+.rule .ticks span{{position:absolute;transform:translateX(-50%);
+ font-variant-numeric:tabular-nums}}
 table{{flex:none;width:100%;border-collapse:collapse;font-size:11.5px}}
-td,th{{text-align:right;padding:3px 8px;border-bottom:1px solid #23272f;white-space:nowrap}}
-td:first-child,th:first-child{{text-align:left;color:#8b93a0}}
-th{{color:#8b93a0;font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}}
+td,th{{text-align:right;padding:3.5px 10px;border-bottom:1px solid #1d222b;white-space:nowrap}}
+td:first-child,th:first-child{{text-align:left;color:#7d8797;padding-left:2px}}
+th{{color:#69727f;font-weight:500;font-size:9.5px;text-transform:uppercase;
+ letter-spacing:.06em;border-bottom-color:#262c37}}
+tbody tr:hover td{{background:#161a21}}
 td.n{{font-variant-numeric:tabular-nums}}
-td.dim{{color:#8b93a0}}
-td.d{{color:#c9d1de}}
-td.d.good{{color:#5ddc9a}}
-tr:last-child td{{border-bottom:0}}
+td.dim{{color:#7d8797}}
+td.hi{{color:#fff}}
+td.d{{color:#aeb7c4}}
+td.d.good{{color:#57d9a3}}
+tbody tr:last-child td{{border-bottom:0}}
 </style></head><body>
 <header>
- <div><h1>{short}</h1><div class='facts'>{facts}</div></div>
+ <div class='title'><h1>{short}</h1><div class='facts'>{facts}</div></div>
+ <div class='chips'>{chips}</div>
  <button class='play' onclick="p('out')">&#9654;&nbsp; Play speaker output</button>
 </header>
 <div class='waves'>{rows}</div>
+<div class='rule'><span class='cap'>seconds</span><span class='ticks'>{ruler}</span></div>
 <table>
-<tr><th>measure</th><th>original</th><th>reference</th><th>cleaned</th><th>change</th></tr>
-{cells}
+<thead><tr><th>measure</th><th>original</th><th>reference</th><th>cleaned</th>
+<th>change</th></tr></thead>
+<tbody>{cells}</tbody>
 </table>
 <script>
 function p(id){{
@@ -337,13 +421,23 @@ def main():
     print(f"noise reduction: {erle:.1f} dB rms, "
           f"snr {m_pri['snr_db']:.1f} -> {m_out['snr_db']:.1f} dB")
 
+    step = tick_step(seconds)
     rows = "".join([
         ROW.format(title="Original", sub="primary mic, ch 0", aid="orig",
-                   svg=svg(primary, "#6ea8ff"), uri=wav_uri(primary, rate)),
+                   colour="#6ea8ff", uri=wav_uri(primary, rate),
+                   svg=svg(primary, "#6ea8ff", "g1", seconds, step)),
         ROW.format(title="Noise", sub="reference mic, ch 1", aid="noise",
-                   svg=svg(reference, "#ff9f5a"), uri=wav_uri(reference, rate)),
+                   colour="#ffa25c", uri=wav_uri(reference, rate),
+                   svg=svg(reference, "#ffa25c", "g2", seconds, step)),
         ROW.format(title="Cleaned", sub="speaker output", aid="out",
-                   svg=svg(cleaned, "#5ddc9a"), uri=wav_uri(cleaned, rate)),
+                   colour="#57d9a3", uri=wav_uri(cleaned, rate),
+                   svg=svg(cleaned, "#57d9a3", "g3", seconds, step)),
+    ])
+
+    chips = "".join([
+        CHIP.format(k="noise reduction", v=f"{erle:.1f} dB"),
+        CHIP.format(k="snr", v=f"{m_pri['snr_db']:.1f} &rarr; {m_out['snr_db']:.1f} dB"),
+        CHIP.format(k="headroom", v=f"{-m_out['peak_db']:.1f} dB"),
     ])
 
     short = pathlib.Path(cap["name"]).name
@@ -351,8 +445,8 @@ def main():
              f"{cap['size'] / 1024:.0f} KB &middot; NLMS {args.taps} taps, "
              f"mu {args.mu} &middot; output {verdict}")
 
-    html = PAGE.format(short=short, facts=facts, rows=rows,
-                       cells=table(m_pri, m_ref, m_out))
+    html = PAGE.format(short=short, facts=facts, chips=chips, rows=rows,
+                       ruler=ruler(seconds, step), cells=table(m_pri, m_ref, m_out))
 
     out = pathlib.Path(args.out) if args.out else pathlib.Path(
         cap["name"] if not source.startswith("http") else "clip.wav").with_suffix(".html")
