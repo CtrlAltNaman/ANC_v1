@@ -1,0 +1,25 @@
+# ESP32-S3-DevKitC-1 N16R8: 16 MB flash, 8 MB octal PSRAM.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# Console stays on UART0 (GPIO 43/44 -> the port marked UART/COM) so that the
+# USB Serial/JTAG port carries nothing but audio. If logs share the data port
+# they land inside the PCM stream and the host cannot resync.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=1000
+
+# Wi-Fi + esp_http_server do not fit in the stock 1 MB app partition.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# ...and the secondary console has to go with it: it duplicates every log line
+# onto the USB Serial/JTAG port, i.e. straight into the PCM stream.
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# The page holds a WebSocket so a PTT clip lands on it the moment you release.
+CONFIG_HTTPD_WS_SUPPORT=y

@@ -1,0 +1,6 @@
+# The stock single-app table gives the app 1 MB. Wi-Fi plus the HTTP server
+# does not fit in that, and the board has 16 MB of flash, so take 3 MB.
+# Name,     Type, SubType, Offset,   Size,  Flags
+nvs,        data, nvs,     0x9000,   0x6000,
+phy_init,   data, phy,     0xf000,   0x1000,
+factory,    app,  factory, 0x10000,  3M,

@@ -1,0 +1,18 @@
+# ESP-IDF build output. sdkconfig is regenerated from sdkconfig.defaults, which
+# is where every deliberate setting for this project lives.
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# Host tools
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Captures and the dashboards generated from them
+recordings/
+*.wav
+*.html
