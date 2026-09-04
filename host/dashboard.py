@@ -10,6 +10,11 @@ showing all three signals with the numbers that matter for tuning.
     python3 dashboard.py --url http://192.168.4.1/both.wav
     python3 dashboard.py capture.wav --taps 64 --mu 0.5
 
+The page is sized to one viewport. The waveforms take whatever vertical space
+is left after the header and the table, so it fits a laptop or a projector
+without scrolling - and if a window really is too short for the table, it
+scrolls rather than quietly hiding the last rows.
+
 Standard library only: no numpy, no plotting library, no web framework. The
 waveforms are inline SVG and the players are data URIs, so the page is one file
 that opens anywhere - including on the Pi with no display packages installed.
@@ -165,9 +170,11 @@ def envelope(sig, cols):
     return out
 
 
-def svg(sig, colour, w=1000, h=96):
+def svg(sig, colour, w=1000, h=100):
+    """viewBox coordinates only - CSS decides the drawn height, so the same
+    markup fills whatever the viewport has left over."""
     mid = h / 2
-    scale = (h / 2 - 3) / FULL
+    scale = (h / 2 - 2) / FULL
     d = []
     for x, (lo, hi) in enumerate(envelope(sig, w)):
         y1 = mid - hi * scale
@@ -194,88 +201,92 @@ def wav_uri(sig, rate):
     return "data:audio/wav;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-CARD = """<section>
- <div class='hd'><div><h2>{title}</h2><em>{sub}</em></div>
+ROW = """<div class='row'>
+ <div class='lbl'><b>{title}</b><em>{sub}</em>
   <button class='mini' onclick="p('{aid}')">play</button></div>
- {svg}
- <div class='grid'>{cells}</div>
- <audio id='{aid}' src='{uri}'></audio>
-</section>"""
+ {svg}<audio id='{aid}' src='{uri}'></audio></div>"""
+
+# label, metrics key, value format, delta format, and whether a rise in that
+# delta is unambiguously an improvement. Only SNR qualifies: a lower peak or a
+# lower zero-crossing rate might be the canceller working or the canceller
+# eating the speech, so those deltas stay neutral rather than reassuring green.
+ROWS = [
+    ("peak",            "peak",     "{:.0f}",       "{:+.0f}",     ""),
+    ("peak level",      "peak_db",  "{:+.1f} dBFS", "{:+.1f} dB",  ""),
+    ("rms level",       "rms_db",   "{:+.1f} dBFS", "{:+.1f} dB",  ""),
+    ("crest factor",    "crest_db", "{:.1f} dB",    "{:+.1f} dB",  ""),
+    ("noise floor",     "floor_db", "{:+.1f} dBFS", "{:+.1f} dB",  ""),
+    ("snr",             "snr_db",   "{:.1f} dB",    "{:+.1f} dB",  " good"),
+    ("dc offset",       "dc_pct",   "{:+.2f} %",    "{:+.2f} %",   ""),
+    ("zero crossings",  "zcr",      "{:.0f} /s",    "{:+.0f} /s",  ""),
+    ("clipped samples", "clipped",  "{:.0f}",       "{:+.0f}",     ""),
+]
 
 
-def cells(m):
-    rows = [
-        ("peak", f"{m['peak_db']:+.1f} dBFS", f"{m['peak']} / 32767"),
-        ("rms", f"{m['rms_db']:+.1f} dBFS", "average level"),
-        ("crest", f"{m['crest_db']:.1f} dB", "peak over rms"),
-        ("noise floor", f"{m['floor_db']:+.1f} dBFS", "quietest 10% of frames"),
-        ("snr", f"{m['snr_db']:.1f} dB", "loud frames over floor"),
-        ("dc offset", f"{m['dc_pct']:+.2f} %", "of full scale"),
-        ("zero crossings", f"{m['zcr']:.0f} /s", "rough brightness"),
-        ("clipped", f"{m['clipped']}", "samples at the rail"),
-    ]
-    return "".join(f"<div><b>{v}</b><span>{k}</span><i>{note}</i></div>"
-                   for k, v, note in rows)
+def table(pri, ref, out):
+    body = []
+    for label, key, fmt, dfmt, cls in ROWS:
+        delta = out[key] - pri[key]
+        good = cls if delta > 0 else ""
+        body.append(
+            f"<tr><td>{label}</td>"
+            f"<td class='n'>{fmt.format(pri[key])}</td>"
+            f"<td class='n dim'>{fmt.format(ref[key])}</td>"
+            f"<td class='n'>{fmt.format(out[key])}</td>"
+            f"<td class='n d{good}'>{dfmt.format(delta)}</td></tr>")
+    return "".join(body)
 
 
 PAGE = """<!doctype html><html><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>MicRelay - {short}</title><style>
-body{{background:#14161a;color:#e6e6e6;font:14px/1.5 system-ui,sans-serif;margin:0;padding:24px}}
-main{{max-width:1060px;margin:0 auto}}
-h1{{font-size:19px;margin:0 0 4px}}
-p.sub{{color:#8b93a0;margin:0 0 18px;font-size:12px}}
-.play{{background:#3d7dff;color:#fff;border:0;border-radius:8px;padding:13px 22px;font-size:15px;cursor:pointer;margin:0 0 20px}}
+*{{box-sizing:border-box}}
+html,body{{height:100%}}
+body{{background:#14161a;color:#e6e6e6;font:13px/1.45 system-ui,sans-serif;
+ margin:0;padding:12px 16px;display:flex;flex-direction:column;gap:9px;overflow:auto}}
+header{{display:flex;justify-content:space-between;align-items:center;gap:16px;flex:none}}
+h1{{font-size:15px;margin:0;font-weight:600}}
+.facts{{color:#8b93a0;font-size:11.5px}}
+.play{{background:#3d7dff;color:#fff;border:0;border-radius:7px;padding:9px 16px;
+ font-size:13px;cursor:pointer;white-space:nowrap;flex:none}}
 .play:hover{{background:#2f6ae8}}
-section{{background:#1c1f26;border:1px solid #2a2f39;border-radius:10px;padding:14px 16px;margin:0 0 14px}}
-.hd{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}}
-h2{{font-size:14px;margin:0;font-weight:600}}
-em{{color:#8b93a0;font-style:normal;font-size:12px}}
-.mini{{background:#2a3140;color:#c9d1de;border:0;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer}}
+.waves{{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;min-height:186px}}
+.row{{flex:1 1 0;min-height:56px;display:flex;align-items:stretch;gap:10px;
+ background:#1c1f26;border:1px solid #2a2f39;border-radius:8px;padding:7px 9px}}
+.lbl{{width:132px;flex:none;display:flex;flex-direction:column;justify-content:center;gap:1px}}
+.lbl b{{font-size:12.5px}}
+em{{color:#8b93a0;font-style:normal;font-size:10.5px;line-height:1.3}}
+.mini{{background:#2a3140;color:#c9d1de;border:0;border-radius:5px;padding:3px 9px;
+ font-size:10.5px;cursor:pointer;margin-top:4px;align-self:flex-start}}
 .mini:hover{{background:#39424f}}
-.wave{{width:100%;height:96px;display:block;margin:10px 0 4px;background:#111318;border-radius:6px}}
+.wave{{flex:1 1 auto;min-width:0;height:100%;background:#111318;border-radius:5px}}
 .axis{{stroke:#2a2f39;stroke-width:1}}
-.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin-top:8px}}
-.grid div{{background:#171a20;border-radius:6px;padding:8px 10px}}
-.grid b{{display:block;font-size:14px;font-variant-numeric:tabular-nums}}
-.grid span{{display:block;color:#8b93a0;font-size:11px}}
-.grid i{{display:block;color:#5d6673;font-size:10px;font-style:normal}}
-table{{width:100%;border-collapse:collapse;font-size:12px}}
-td,th{{text-align:left;padding:5px 8px;border-bottom:1px solid #2a2f39}}
-th{{color:#8b93a0;font-weight:500}}
+table{{flex:none;width:100%;border-collapse:collapse;font-size:11.5px}}
+td,th{{text-align:right;padding:3px 8px;border-bottom:1px solid #23272f;white-space:nowrap}}
+td:first-child,th:first-child{{text-align:left;color:#8b93a0}}
+th{{color:#8b93a0;font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}}
 td.n{{font-variant-numeric:tabular-nums}}
-</style></head><body><main>
-<h1>{short}</h1>
-<p class='sub'>{facts}</p>
-<button class='play' onclick="p('out')">&#9654;&nbsp; Play speaker output</button>
-{cards}
-<section><h2>Cancellation</h2><em>NLMS, {taps} taps, mu {mu}</em>
-<table><tr><th>measure</th><th>original</th><th>cleaned</th><th>change</th></tr>
-{rows}</table></section>
-</main><script>
+td.dim{{color:#8b93a0}}
+td.d{{color:#c9d1de}}
+td.d.good{{color:#5ddc9a}}
+tr:last-child td{{border-bottom:0}}
+</style></head><body>
+<header>
+ <div><h1>{short}</h1><div class='facts'>{facts}</div></div>
+ <button class='play' onclick="p('out')">&#9654;&nbsp; Play speaker output</button>
+</header>
+<div class='waves'>{rows}</div>
+<table>
+<tr><th>measure</th><th>original</th><th>reference</th><th>cleaned</th><th>change</th></tr>
+{cells}
+</table>
+<script>
 function p(id){{
  var a=document.getElementById(id);
  document.querySelectorAll('audio').forEach(function(x){{if(x!==a){{x.pause();x.currentTime=0}}}});
  if(a.paused){{a.play()}}else{{a.pause();a.currentTime=0}}
 }}
 </script></body></html>"""
-
-
-def compare(a, b):
-    rows = [
-        ("rms level", f"{a['rms_db']:+.1f} dBFS", f"{b['rms_db']:+.1f} dBFS",
-         f"{b['rms_db'] - a['rms_db']:+.1f} dB"),
-        ("noise floor", f"{a['floor_db']:+.1f} dBFS", f"{b['floor_db']:+.1f} dBFS",
-         f"{b['floor_db'] - a['floor_db']:+.1f} dB"),
-        ("snr", f"{a['snr_db']:.1f} dB", f"{b['snr_db']:.1f} dB",
-         f"{b['snr_db'] - a['snr_db']:+.1f} dB"),
-        ("peak", f"{a['peak_db']:+.1f} dBFS", f"{b['peak_db']:+.1f} dBFS",
-         f"{b['peak_db'] - a['peak_db']:+.1f} dB"),
-        ("crest factor", f"{a['crest_db']:.1f} dB", f"{b['crest_db']:.1f} dB",
-         f"{b['crest_db'] - a['crest_db']:+.1f} dB"),
-    ]
-    return "".join(f"<tr><td>{k}</td><td class='n'>{x}</td><td class='n'>{y}</td>"
-                   f"<td class='n'>{z}</td></tr>" for k, x, y, z in rows)
 
 
 # ---------------------------------------------------------------------- main
@@ -321,32 +332,27 @@ def main():
     # Positive means the output is quieter than what came in, i.e. the filter
     # removed something. Negative means it is diverging - say so plainly.
     erle = db(m_pri["rms"] / m_out["rms"]) if m_out["rms"] > 0 else 0.0
-    verdict = (f"rms {erle:.1f} dB below the original" if erle >= 0 else
-               f"rms {abs(erle):.1f} dB ABOVE the original - not converging, "
-               "try a lower --mu")
+    verdict = (f"{erle:.1f} dB below the original" if erle >= 0 else
+               f"{abs(erle):.1f} dB ABOVE the original - not converging, lower --mu")
     print(f"noise reduction: {erle:.1f} dB rms, "
           f"snr {m_pri['snr_db']:.1f} -> {m_out['snr_db']:.1f} dB")
 
-    cards = "".join([
-        CARD.format(title="Original - as received", aid="orig",
-                    sub="primary mic, channel 0", svg=svg(primary, "#6ea8ff"),
-                    cells=cells(m_pri), uri=wav_uri(primary, rate)),
-        CARD.format(title="Noise - reference", aid="noise",
-                    sub="reference mic, channel 1", svg=svg(reference, "#ff9f5a"),
-                    cells=cells(m_ref), uri=wav_uri(reference, rate)),
-        CARD.format(title="Cleaned - speaker output", aid="out",
-                    sub=f"NLMS output, {verdict}",
-                    svg=svg(cleaned, "#5ddc9a"),
-                    cells=cells(m_out), uri=wav_uri(cleaned, rate)),
+    rows = "".join([
+        ROW.format(title="Original", sub="primary mic, ch 0", aid="orig",
+                   svg=svg(primary, "#6ea8ff"), uri=wav_uri(primary, rate)),
+        ROW.format(title="Noise", sub="reference mic, ch 1", aid="noise",
+                   svg=svg(reference, "#ff9f5a"), uri=wav_uri(reference, rate)),
+        ROW.format(title="Cleaned", sub="speaker output", aid="out",
+                   svg=svg(cleaned, "#5ddc9a"), uri=wav_uri(cleaned, rate)),
     ])
 
     short = pathlib.Path(cap["name"]).name
     facts = (f"{seconds:.2f} s &middot; {rate} Hz &middot; 16-bit stereo &middot; "
-             f"{len(primary)} frames &middot; {cap['size'] / 1024:.0f} KB &middot; "
-             f"noise reduction {erle:.1f} dB")
+             f"{cap['size'] / 1024:.0f} KB &middot; NLMS {args.taps} taps, "
+             f"mu {args.mu} &middot; output {verdict}")
 
-    html = PAGE.format(short=short, facts=facts, cards=cards, taps=args.taps,
-                       mu=args.mu, rows=compare(m_pri, m_out))
+    html = PAGE.format(short=short, facts=facts, rows=rows,
+                       cells=table(m_pri, m_ref, m_out))
 
     out = pathlib.Path(args.out) if args.out else pathlib.Path(
         cap["name"] if not source.startswith("http") else "clip.wav").with_suffix(".html")
