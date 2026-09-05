@@ -5,14 +5,43 @@ sdkconfig
 sdkconfig.old
 managed_components/
 dependencies.lock
+# Raw dataset (huge, not original work — regenerate/re-download separately)
+dccrn_dataset/
+dccrn_dataset.zip
+*.zip
+
+# Trained model weights (large binaries — share via Drive/HF instead of git)
+checkpoints/
+*.pt
+*.pth
+
+# Training logs / TensorBoard event files
+logs/
+*.tfevents.*
+
+# Generated evaluation outputs (regenerate anytime via evaluate.py)
+results/
 
 # Host tools
 __pycache__/
 *.pyc
 venv/
 .venv/
+*.pyo
+*.egg-info/
+.pytest_cache/
 
 # Captures and the dashboards generated from them
 recordings/
 *.wav
 *.html
+# Jetson-specific deployment (not used this round — Raspberry Pi only)
+upload_to_hf.py
+jetson_download_and_run.py
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp
+
