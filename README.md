@@ -117,3 +117,87 @@ then interleaved 16-bit stereo PCM at 16 kHz, channel 0 primary and channel 1
 reference. `flags` bit 0 marks the 500 ms pre-roll that opens a transmission —
 the buffer that lets a recording start before the thumb did. A gap in `seq`
 means the host missed a packet.
+
+---
+
+# Speech Enhancement (DCCRN) — ML pipeline
+
+The NLMS filter in the dashboard handles the case where the reference mic is
+correlated with the noise but not the speech. Everything below is the other
+half of the system: a deep-learning enhancer trained specifically on the
+defence-relevant noise this project targets — gunshot, artillery, rotor,
+engine, siren, wind — across a range of SNRs, for the cases NLMS alone can't
+separate.
+
+## Pipeline overview
+
+```
+dataset_mixer.py            clean speech + noise clips -> noisy/clean pairs + metadata.csv
+prepare_dccrn_dataset.py    splits pairs into train / validation / test (80 / 10 / 10)
+train.py                    trains DCCRN locally (CPU or CUDA)
+colab_train_dccrn.ipynb     same training, full-size model, for a free Colab T4 GPU
+evaluate.py                 scores a trained checkpoint on the test set
+infer.py                    runs a trained checkpoint on new audio (deployment)
+```
+
+## Model
+
+DCCRN (Deep Complex Convolution Recurrent Network) runs directly on the
+complex STFT of the noisy waveform: a complex-valued convolutional
+encoder/decoder (U-Net style, with skip connections) and a complex LSTM
+bottleneck predict a complex ratio mask, which is applied to the noisy
+spectrum before an ISTFT reconstructs the enhanced waveform. Because the mask
+is complex, phase is corrected along with magnitude, unlike a magnitude-only
+enhancer. Trained with an SI-SNR loss plus a small multi-resolution STFT term.
+See `src/dccrn.py`.
+
+Two trained sizes:
+
+| Config | Parameters | Where it runs                    |
+| ------ | ---------- | --------------------------------- |
+| Small  | 0.74M      | CPU (laptop, Raspberry Pi)         |
+| Full   | 2.93M      | Colab T4 GPU (better quality)      |
+
+## Training
+
+```
+python train.py --data_root dccrn_dataset --epochs 30
+```
+
+Full hyperparameter list: `python train.py --help`. For the full-size model,
+use `colab_train_dccrn.ipynb` instead — it trains the 2.93M model on a free
+Colab T4 GPU in a few hours, versus over a day on CPU.
+
+## Results (test set, full-size 2.93M model)
+
+| Metric | Noisy   | Enhanced   | Target  |
+| ------ | ------- | ---------- | ------- |
+| SI-SNR | 8.15 dB | **16.29 dB** | > 15 dB |
+| STOI   | 0.869   | **0.925**    | > 0.85  |
+| PESQ   | 1.62    | **2.49**     | > 2.5   |
+
+We report SI-SNR rather than plain, scale-sensitive SNR, standard practice in
+speech enhancement literature: the SI-SNR training objective gives the model
+no incentive to also match absolute output level, so raw SNR is currently a
+weaker number than SI-SNR while that's untuned.
+
+Full per-noise-type and per-input-SNR breakdowns, a per-file CSV, and a
+handful of before/after audio samples all come out of:
+
+```
+python evaluate.py --checkpoint checkpoints/best.pt --data_root dccrn_dataset
+```
+
+## Deployment (Raspberry Pi)
+
+`infer.py` is the standalone inference path: just the trained checkpoint,
+`src/dccrn.py`, and `infer.py` itself, no training code needed on-device.
+
+```
+pip install -r requirements-inference.txt
+python infer.py --checkpoint best.pt --input noisy.wav --output enhanced.wav
+```
+
+Benchmarked on a laptop CPU at roughly 5-6x real-time for the full-size model
+(0.16-0.21 real-time-factor), comfortably real-time capable even on weaker
+embedded CPUs.
