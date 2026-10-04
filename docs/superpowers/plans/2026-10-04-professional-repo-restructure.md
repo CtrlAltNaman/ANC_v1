@@ -124,9 +124,9 @@ from host.dashboard import metrics, nlms
 
 class DashboardTests(unittest.TestCase):
     def test_metrics_reports_peak_and_sample_rate_features(self):
-        signal = array("h", [0, 1000, -1000, 2000, -2000, 0] * 100)
+        signal = array("h", [0, 1000, -1000, 0] * 100)
         result = metrics(signal, 16000)
-        self.assertEqual(result["peak"], 2000)
+        self.assertEqual(result["peak"], 1000)
         self.assertGreater(result["rms"], 0)
         self.assertEqual(result["zcr"], 8000.0)
 

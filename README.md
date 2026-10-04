@@ -1,119 +1,91 @@
-# MicRelay — two-mic capture node
+# DhvaniKavach — adaptive noise-cancellation capture node
 
-SIH 26052, phase 1. An ESP32-S3 with two INMP441 microphones on one I2S bus:
-one primary mic and one noise reference, captured together so the pair can be
-used for adaptive noise cancellation downstream.
+SIH Problem Statement 26052, phase 1. DhvaniKavach is an ESP32-S3 capture
+prototype for defence-noise speech enhancement: two INMP441 microphones share
+one I2S bus, with one microphone acting as the primary speech channel and the
+other as a noise reference.
 
-A press of the PTT button streams audio to a wired host over USB. Releasing it
-publishes the clip to a small web player on the board itself, so the capture can
-be checked from a phone with nothing else connected.
+The device keeps the microphones running, gates transmission with a PTT
+button, sends interleaved stereo PCM to a wired host over native USB, and
+serves the latest clip through a small onboard web player. The host dashboard
+then applies a two-microphone NLMS filter and reports signal-quality metrics.
 
-## Hardware
+This repository identity and Git remote are unchanged by the project cleanup.
 
-ESP32-S3 (N16R8: 16 MB flash, 8 MB octal PSRAM) and two INMP441 modules sharing
-the clock lines.
+## System at a glance
 
-| Pin     | Signal                                                    |
-| ------- | --------------------------------------------------------- |
-| GPIO 4  | SCK → both mics (68R at the ESP end)                      |
-| GPIO 5  | WS  → both mics (68R at the ESP end)                      |
-| GPIO 6  | SD  ← both mics                                           |
-| GPIO 7  | red LED, cathode; anode via 330R to 3V3 — clocks running  |
-| GPIO 15 | green LED, same wiring — transmitting                     |
-| GPIO 16 | PTT button to GND, internal pull-up, 100nF to GND         |
+```text
+INMP441 primary ─┐
+                 ├─ I2S ─ ESP32-S3 ── native USB ── host/receive.py ── WAV
+INMP441 reference┘              │
+                                └─ Wi-Fi AP ── onboard web player
 
-Mic A straps L/R to **GND** → left slot → primary.
-Mic B straps L/R to **3V3** → right slot → reference.
-
-The console is UART0 on GPIO 43/44. Audio leaves over the ESP32-S3's *native*
-USB (GPIO 19/20) — a separate port from the console, so logs never land inside
-the PCM stream.
-
-## Build and flash
-
+WAV ── host/dashboard.py ── NLMS analysis ── self-contained HTML report
 ```
+
+## Repository layout
+
+```text
+main/src/       ESP32 capture loop, clip buffer, Wi-Fi/web player
+main/include/   public firmware interfaces
+host/           USB receiver and standard-library analysis dashboard
+docs/           architecture, hardware, protocol, and development guides
+scripts/        Windows helpers for ESP-IDF build/flash/monitor commands
+```
+
+## Quick start
+
+### Firmware
+
+The firmware uses ESP-IDF 5.5.2 and targets `esp32s3`.
+
+```text
+idf.py set-target esp32s3
+idf.py build
 idf.py -p COM21 flash monitor
 ```
 
-ESP-IDF 5.5.2, target `esp32s3`. `sdkconfig` is generated from
-`sdkconfig.defaults`; the app needs the 3 MB partition in `partitions.csv`
-because Wi-Fi and the HTTP server do not fit the stock 1 MB table.
+PowerShell helpers are also available:
 
-## Reading the boot log
-
-Bring-up runs in five stages and each reports its own result. The one worth
-watching is the I2S probe, which does not trust the registers — it times real
-traffic on the bus and analyses it:
-
-```
-anc: i2s: read 16000 frames in 1000 ms -> 16000 Hz on the wire (configured 16000 Hz)
-anc: i2s: left  (mic A): audio +-412000 (4% FS), DC +1200 (0% FS), 0% of samples zero
-anc: i2s: right (mic B): audio +-388000 (4% FS), DC +900 (0% FS), 0% of samples zero
-anc: i2s: PROBE OK - both slots carrying audio
+```powershell
+.\scripts\build.ps1
+.\scripts\flash.ps1 -Port COM21
+.\scripts\monitor.ps1 -Port COM21
 ```
 
-Each failure names the pin to check: no data at all means SCK/WS are not
-clocking, all-zero samples mean SD is not arriving or the mics are unpowered,
-and one flat slot means that mic's L/R strap. If the probe fails the web server
-is not started at all — the red LED blinks instead of the board pretending to
-be a working capture node.
+### Host tools
 
-## Web player
-
-The node brings up a SoftAP: join **MicRelay** / **micrelay123** and open
-<http://192.168.4.1/>. To put it on an existing network instead, set
-`WEB_SOFT_AP` to 0 in `main/web.c` and fill in the SSID and password below it.
-
-Press **Record 5 s** on the page, or just hold PTT — up to 10 s. The page holds
-a WebSocket, so a clip recorded with the button appears the moment you release
-it, with no reload. Three players: left mic, right mic, and both as stereo.
-
-## Wired host
-
-`host/receive.py` reads the USB stream and writes one stereo WAV per PTT press:
-
-```
-pip install pyserial
-python host/receive.py --port /dev/ttyACM0 --out recordings/
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r host/requirements.txt
+python host/receive.py --port COM21 --out recordings/
+python host/dashboard.py recordings/
 ```
 
-The port is the native-USB one (VID `303A`), not the console UART.
+The native USB port is separate from the UART console. The receiver writes one
+16-bit, 16 kHz stereo WAV per PTT transmission. The dashboard accepts a WAV
+path, a recordings directory, or the node URL such as
+`http://192.168.4.1/both.wav`.
 
-## Dashboard
+### Host tests
 
-`host/dashboard.py` runs the two-mic noise canceller over a capture and writes a
-self-contained HTML page: three waveforms — primary, reference, and the cleaned
-output — with peak, RMS, crest factor, noise floor, SNR, DC offset,
-zero-crossing rate and clipping for each, plus a before/after table.
-
-```
-python host/dashboard.py                            # newest wav in recordings/
-python host/dashboard.py --url http://192.168.4.1/both.wav
-python host/dashboard.py capture.wav --taps 64 --mu 0.5
+```powershell
+python -m unittest discover -s host/tests -v
 ```
 
-Standard library only — no numpy, no plotting library, no web framework — so it
-runs on the Pi as-is.
+## Documentation
 
-NLMS only helps where the reference is correlated with the noise but not with
-the speech. Mics close together hear nearly the same thing, and the filter will
-cancel the speech along with the noise: watch the SNR row rather than the raw
-reduction figure.
+- [Architecture](docs/architecture.md) — runtime components and data flow
+- [Hardware](docs/hardware.md) — board wiring, microphone straps, and LEDs
+- [Protocol](docs/protocol.md) — ANC0 USB packet format and stream semantics
+- [Development](docs/development.md) — setup, build, test, and troubleshooting
+- [Host tools](host/README.md) — receiver and dashboard usage
 
-## Layout
+## Current scope
 
-```
-main/main.c    capture loop, bring-up logging, I2S probe, PTT
-main/clip.c    the recorded clip in PSRAM, WAV assembly
-main/web.c     SoftAP, HTTP server, the player page, WebSocket push
-host/receive.py    USB stream → one WAV per transmission
-host/dashboard.py  noise canceller + analysis page
-```
-
-## Protocol
-
-USB carries `ANC0` packets: a 12-byte header (magic, `seq`, `frames`, `flags`)
-then interleaved 16-bit stereo PCM at 16 kHz, channel 0 primary and channel 1
-reference. `flags` bit 0 marks the 500 ms pre-roll that opens a transmission —
-the buffer that lets a recording start before the thumb did. A gap in `seq`
-means the host missed a packet.
+This branch contains the phase-1 embedded capture node, onboard clip player,
+USB receiver, and NLMS analysis dashboard. The broader SIH 26052 ML pipeline
+—including DCCRN training and edge inference optimization—can be integrated as
+a subsequent project area without changing the capture protocol documented
+here.
