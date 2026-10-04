@@ -45,4 +45,4 @@ The onboard player defaults to a SoftAP:
 - URL: `http://192.168.4.1/`
 
 The station-mode credentials are compile-time placeholders in
-`main/src/web.c`; do not commit real credentials.
+`firmware/esp32/main/src/web.c`; do not commit real credentials.

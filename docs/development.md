@@ -12,6 +12,7 @@ After installing ESP-IDF, export its environment in the current shell so
 ## Firmware workflow
 
 ```text
+cd firmware/esp32
 idf.py set-target esp32s3
 idf.py build
 idf.py -p COM21 flash
@@ -21,23 +22,23 @@ idf.py -p COM21 monitor
 Or use the PowerShell wrappers:
 
 ```powershell
-.\scripts\build.ps1
-.\scripts\flash.ps1 -Port COM21
-.\scripts\monitor.ps1 -Port COM21
+.\tools\build_firmware.ps1
+.\tools\flash_esp32.ps1 -Port COM21
+.\tools\monitor_esp32.ps1 -Port COM21
 ```
 
-The root `CMakeLists.txt` remains the ESP-IDF project entry point. The
-component source list lives in `main/CMakeLists.txt`.
+`firmware/esp32/CMakeLists.txt` is the ESP-IDF project entry point. The
+component source list lives in `firmware/esp32/main/CMakeLists.txt`.
 
 ## Host workflow
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r host/requirements.txt
-python -m unittest discover -s host/tests -v
-python host/receive.py --port COM21 --out recordings/
-python host/dashboard.py recordings/
+python -m pip install -r tools/audio/requirements.txt
+python -m unittest discover -s tests/unit -v
+python tools/audio/receive.py --port COM21 --out recordings/
+python tools/audio/dashboard.py recordings/
 ```
 
 The dashboard and its tests use the standard library. Only the receiver needs

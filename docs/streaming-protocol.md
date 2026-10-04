@@ -31,7 +31,7 @@ microphone and channel 1 is the noise reference.
 
 `flags & 0x0001` (`FLAG_PREROLL`) marks packets belonging to the 500 ms history
 that opens a PTT transmission. The first flagged packet starts a new recording
-in `host/receive.py`; later packets continue that transmission.
+in `tools/audio/receive.py`; later packets continue that transmission.
 
 ## Integrity and recovery
 

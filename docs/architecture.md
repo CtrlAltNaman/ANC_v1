@@ -23,11 +23,11 @@ signals the fault through the red LED and console.
 
 | Unit | Responsibility |
 | --- | --- |
-| `main/src/main.c` | GPIO, I2S, USB packet emission, PTT state, pre-roll, capture loop |
-| `main/src/clip.c` | PSRAM clip lifecycle, peak tracking, WAV assembly |
-| `main/src/web.c` | SoftAP/station setup, HTTP routes, WebSocket notification, player page |
-| `main/include/clip.h` | Clip data model and clip API |
-| `main/include/web.h` | Web-server startup and capture-task notification API |
+| `firmware/esp32/main/src/main.c` | GPIO, I2S, USB packet emission, PTT state, pre-roll, capture loop |
+| `firmware/esp32/main/src/clip.c` | PSRAM clip lifecycle, peak tracking, WAV assembly |
+| `firmware/esp32/main/src/web.c` | SoftAP/station setup, HTTP routes, WebSocket notification, player page |
+| `firmware/esp32/main/include/clip.h` | Clip data model and clip API |
+| `firmware/esp32/main/include/web.h` | Web-server startup and capture-task notification API |
 
 The capture loop owns writes to the clip buffer. The HTTP task reads a copied
 WAV representation and never holds the clip lock while sending socket data, so
@@ -35,10 +35,10 @@ a slow browser cannot block I2S servicing.
 
 ## Host boundaries
 
-`host/receive.py` is a transport adapter. It resynchronizes on the ANC0 magic,
+`tools/audio/receive.py` is a transport adapter. It resynchronizes on the ANC0 magic,
 validates packet sizes, detects sequence gaps, and writes stereo WAV files.
 
-`host/dashboard.py` is an offline analysis tool. It loads the primary and
+`tools/audio/dashboard.py` is an offline analysis tool. It loads the primary and
 reference channels, runs NLMS, calculates signal metrics, and embeds waveforms
 and playable WAV data into one HTML report. It deliberately has no plotting
 package, web framework, or runtime service dependency.

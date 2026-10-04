@@ -1,26 +1,30 @@
 # ESP-IDF build output. sdkconfig is regenerated from sdkconfig.defaults, which
 # is where every deliberate setting for this project lives.
 build/
+firmware/esp32/build/
 sdkconfig
 sdkconfig.old
 managed_components/
 dependencies.lock
 # Raw dataset (huge, not original work — regenerate/re-download separately)
-dccrn_dataset/
-dccrn_dataset.zip
+ml/data/dccrn_dataset/
+ml/data/dccrn_dataset.zip
 *.zip
 
 # Trained model weights (large binaries — share via Drive/HF instead of git)
-checkpoints/
+ml/checkpoints/
+ml/models/checkpoints/
 *.pt
 *.pth
 
 # Training logs / TensorBoard event files
-logs/
+ml/logs/
 *.tfevents.*
 
 # Generated evaluation outputs (regenerate anytime via evaluate.py)
-results/
+ml/results/
+ml/reports/*.json
+ml/reports/*.csv
 
 # Host tools
 __pycache__/
@@ -37,6 +41,7 @@ venv/
 recordings/
 *.wav
 *.html
+backups/
 # Jetson-specific deployment (not used this round — Raspberry Pi only)
 upload_to_hf.py
 jetson_download_and_run.py
@@ -44,5 +49,7 @@ jetson_download_and_run.py
 # OS / editor junk
 .DS_Store
 Thumbs.db
-.vscode/
+# Keep project editor settings that are intentionally committed.
+!.vscode/
+!.vscode/settings.json
 *.swp
