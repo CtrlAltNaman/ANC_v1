@@ -5,35 +5,37 @@ overall improvement, and breaks results down per noise type and per input
 SNR level. Also writes a few enhanced .wav files for listening.
 
 Usage:
-    python evaluate.py --checkpoint checkpoints/best.pt --data_root dccrn_dataset
+    python -m ml.scripts.evaluate --checkpoint ml/checkpoints/best.pt --data_root ml/data/dccrn_dataset
 """
 import argparse
 import collections
 import csv
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 import torch
 from tqdm import tqdm
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
-from dccrn import DCCRN
-from dataset import NoisyCleanDataset, collate_eval
-from metrics import evaluate_pair
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+from ml.data.dataset import NoisyCleanDataset, collate_eval
+from ml.models.dccrn import DCCRN
+from ml.models.metrics import evaluate_pair
 
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--checkpoint", type=str, default="checkpoints/best.pt")
-    p.add_argument("--data_root", type=str, default="dccrn_dataset")
+    p.add_argument("--checkpoint", type=str, default=str(REPO_ROOT / "ml" / "checkpoints" / "best.pt"))
+    p.add_argument("--data_root", type=str, default=str(REPO_ROOT / "ml" / "data" / "dccrn_dataset"))
     p.add_argument("--split", type=str, default="test")
     p.add_argument("--sample_rate", type=int, default=16000)
     p.add_argument("--device", type=str, default=None)
     p.add_argument("--save_samples", type=int, default=5,
                     help="Number of enhanced wavs to save for listening")
-    p.add_argument("--output_dir", type=str, default="results")
+    p.add_argument("--output_dir", type=str, default=str(REPO_ROOT / "ml" / "reports"))
     p.add_argument("--max_utts", type=int, default=0, help="0 = evaluate all")
     return p.parse_args()
 

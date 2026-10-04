@@ -2,7 +2,7 @@
 Train a DCCRN speech-enhancement model on the dccrn_dataset noisy/clean pairs.
 
 Usage:
-    python train.py --data_root dccrn_dataset --epochs 30 --batch_size 8
+    python -m ml.scripts.train --data_root ml/data/dccrn_dataset --epochs 30 --batch_size 8
 
 Checkpoints go to ./checkpoints, TensorBoard logs to ./logs.
 Run evaluate.py afterwards to compute SNR / SI-SNR / STOI / PESQ on the test set.
@@ -10,21 +10,23 @@ Run evaluate.py afterwards to compute SNR / SI-SNR / STOI / PESQ on the test set
 import argparse
 import os
 import sys
+from pathlib import Path
 import time
 
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
-from dccrn import DCCRN
-from dataset import NoisyCleanDataset
-from losses import combined_loss, si_snr
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+from ml.data.dataset import NoisyCleanDataset
+from ml.models.dccrn import DCCRN
+from ml.models.losses import combined_loss, si_snr
 
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--data_root", type=str, default="dccrn_dataset",
+    p.add_argument("--data_root", type=str, default=str(REPO_ROOT / "ml" / "data" / "dccrn_dataset"),
                     help="Folder containing train/validation/test subfolders")
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--batch_size", type=int, default=8)
@@ -38,8 +40,8 @@ def parse_args():
     p.add_argument("--lstm_hidden", type=int, default=64)
     p.add_argument("--lstm_layers", type=int, default=2)
     p.add_argument("--num_workers", type=int, default=2)
-    p.add_argument("--checkpoint_dir", type=str, default="checkpoints")
-    p.add_argument("--log_dir", type=str, default="logs")
+    p.add_argument("--checkpoint_dir", type=str, default=str(REPO_ROOT / "ml" / "checkpoints"))
+    p.add_argument("--log_dir", type=str, default=str(REPO_ROOT / "ml" / "logs"))
     p.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
     p.add_argument("--stft_loss_weight", type=float, default=0.2)
     p.add_argument("--grad_clip", type=float, default=5.0)

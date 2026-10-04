@@ -2,24 +2,26 @@
 Standalone inference script for deployment (e.g. Raspberry Pi).
 
 Loads a trained DCCRN checkpoint and enhances one or more noisy wav files.
-Only needs: this file, src/dccrn.py, the checkpoint (.pt), and the packages
+Only needs: this file, ml/models/dccrn.py, the checkpoint (.pt), and the packages
 in requirements-inference.txt (torch, soundfile) -- none of the training
 code (dataset.py, losses.py, train.py) is required on the deployment device.
 
 Usage:
-    python infer.py --checkpoint best.pt --input noisy.wav --output enhanced.wav
-    python infer.py --checkpoint best.pt --input_dir noisy_folder --output_dir enhanced_folder
+    python -m ml.scripts.infer --checkpoint best.pt --input noisy.wav --output enhanced.wav
+    python -m ml.scripts.infer --checkpoint best.pt --input_dir noisy_folder --output_dir enhanced_folder
 """
 import argparse
 import os
 import sys
+from pathlib import Path
 import time
 
 import soundfile as sf
 import torch
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
-from dccrn import DCCRN
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+from ml.models.dccrn import DCCRN
 
 
 def load_model(checkpoint_path, device="cpu"):
