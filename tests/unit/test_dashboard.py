@@ -1,7 +1,7 @@
 from array import array
 import unittest
 
-from host.dashboard import metrics, nlms
+from tools.audio.dashboard import metrics, nlms
 
 
 class DashboardTests(unittest.TestCase):
